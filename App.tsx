@@ -1,117 +1,195 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import firebase from '@react-native-firebase/app';
+import messaging from '@react-native-firebase/messaging';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { View, Text, Image, StyleSheet, TextInput, Button, TouchableOpacity, Alert } from 'react-native';
+import HomeScreen from './HomeScreen';
+import AppointmentsScreen from './AppointmentsScreen';
+import AppointmentDetailsScreen from './AppointmentDetailsScreen';
 
-import React from 'react';
-import type {PropsWithChildren} from 'react';
-import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
+const Stack = createNativeStackNavigator();
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
-
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
-
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+// Fonction personnalisée pour le titre avec logo
+const LogoTitle = () => {
   return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
+    <View style={styles.headerContainer}>
+      <Text style={styles.headerText}>Green Connect</Text>
+      <Image source={require('./assets/lignes-cycle-feuille.png')} style={styles.headerLogo} />
     </View>
   );
-}
+};
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+// Écran de connexion
+const LoginScreen = ({ navigation }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+  const handleLogin = async () => {
+    
+
+      // Navigation vers l'écran principal
+      navigation.replace('Green Connect');
+    
   };
 
   return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
+    <View style={styles.container}>
+      <Text style={styles.title}>Bienvenue sur Green Connect</Text>
+      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+      <TextInput
+        style={styles.input}
+        placeholder="Adresse e-mail"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
       />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+      <TextInput
+        style={styles.input}
+        placeholder="Mot de passe"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+      />
+      <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
+        <Text style={styles.loginButtonText}>Connexion</Text>
+      </TouchableOpacity>
+    </View>
   );
-}
+};
+
+// Fonction de déconnexion commune
+const handleLogout = async (navigation) => {
+
+
+    // Retourner à l'écran de connexion
+    navigation.replace('Login');
+ 
+};
+
+const App = () => {
+  // Fonctionnalité de gestion des notifications Firebase
+  const requestUserPermission = async () => {
+    const authStatus = await messaging().requestPermission();
+    const enabled =
+      authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+      authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+
+    if (enabled) {
+      console.log('Authorization status:', authStatus);
+    }
+  };
+
+  const getToken = async () => {
+    const token = await messaging().getToken();
+    console.log('Token Firebase :', token);
+  };
+
+  useEffect(() => {
+    requestUserPermission();
+    getToken();
+  }, []);
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator initialRouteName="Login">
+        <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+        <Stack.Screen
+          name="Green Connect"
+          component={HomeScreen}
+          options={({ navigation }) => ({
+            headerTitle: () => <LogoTitle />,
+            headerRight: () => (
+              <Button
+                title="Déconnexion"
+                onPress={() => handleLogout(navigation)}
+                color="#4CAF50"
+              />
+            ),
+          })}
+        />
+        <Stack.Screen
+          name="Rendez-Vous"
+          component={AppointmentsScreen}
+          options={({ navigation }) => ({
+            headerRight: () => (
+              <Button
+                title="Déconnexion"
+                onPress={() => handleLogout(navigation)}
+                color="#4CAF50"
+              />
+            ),
+          })}
+        />
+        <Stack.Screen
+          name="AppointmentDetails"
+          component={AppointmentDetailsScreen}
+          options={({ navigation }) => ({
+            headerRight: () => (
+              <Button
+                title="Déconnexion"
+                onPress={() => handleLogout(navigation)}
+                color="#4CAF50"
+              />
+            ),
+          })}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+};
 
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
-  sectionTitle: {
+  title: {
     fontSize: 24,
-    fontWeight: '600',
+    fontWeight: 'bold',
+    marginBottom: 20,
+    color: 'black',
   },
-  sectionDescription: {
-    marginTop: 8,
+  input: {
+    width: '100%',
+    padding: 10,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 5,
+    marginBottom: 15,
+  },
+  loginButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+  },
+  loginButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  headerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerText: {
     fontSize: 18,
-    fontWeight: '400',
+    fontWeight: 'bold',
+    marginRight: 10,
   },
-  highlight: {
-    fontWeight: '700',
+  headerLogo: {
+    width: 30,
+    height: 30,
+  },
+  errorText: {
+    color: 'red',
+    textAlign: 'center',
+    marginBottom: 10,
   },
 });
 
