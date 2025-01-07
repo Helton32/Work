@@ -1,229 +1,183 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert, TextInput } from 'react-native';
 import Icon from 'react-native-vector-icons/FontAwesome';
-import axios from 'axios';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { format } from 'date-fns';
+import axios from 'axios';
+import moment from 'moment';
 
 
+const AppointmentTable = () => {
+  const [appointments, setAppointments] = useState([]);
+  const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
 
-const AppointmentsScreen = () => {
-  const [data, setData] = useState([]);
-  const [expandedId, setExpandedId] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastChecked, setLastChecked] = useState(new Date().toISOString());
-  const swipeableRefs = useRef([]);
-
-
+  // Fonction pour charger les données depuis Google Sheets
   useEffect(() => {
-    const interval = setInterval(async () => {
+    const fetchData = async () => {
       try {
-        const response = await axios.get('http://192.168.1.22/api/greenco/new-appointments', {
-          params: { last_checked: lastChecked },
-        });
-  
-        const newAppointments = response.data.data || [];
-  
-        if (newAppointments.length > 0) {
-          setData(prevData => [...newAppointments, ...prevData]);
-  
-          // Envoyer une notification pour chaque nouveau rendez-vous
-          newAppointments.forEach(appointment => {
-            NotificationService.sendNotification(
-              'Nouveau rendez-vous',
-              `Rendez-vous pour ${appointment.Name} ${appointment.LastName} à ${appointment.Heure}`
-            );
-          });
-  
-          setLastChecked(new Date().toISOString());
-        }
+        const response = await axios.get(
+          'https://docs.google.com/spreadsheets/d/e/2PACX-1vRrGO3DdCe23Hv8ZQDmBtPbJlOhI2-YeUcm391Q7QdlDS3PH5nUwphsqvslw1O7rGm-Ke8sEMz6aPkg/pub?output=csv'
+        );
+
+        const csvData = response.data;
+        const parsedData = parseCSV(csvData);
+        setAppointments(parsedData);
       } catch (error) {
-        console.error('Erreur lors de la vérification des nouveaux rendez-vous :', error);
+        console.error('Erreur lors du chargement des données :', error);
       }
-    }, 300000); // Vérifie toutes les 5 minutes
-  
-    return () => clearInterval(interval);
-  }, [lastChecked]);
+    };
 
-  
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const response = await axios.get('http://192.168.1.22/api/greenco');
-      const formattedData = response.data.data.map(item => ({ ...item, validated: false }));
-      setData(formattedData);
-    } catch (error) {
-      console.error('Erreur lors de la récupération des données :', error);
-      Alert.alert("Erreur", "Impossible de charger les rendez-vous. Vérifiez votre connexion.");
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-
-  useEffect(() => {
     fetchData();
   }, []);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    fetchData().then(() => setRefreshing(false));
-  }, []);
+  // Fonction pour convertir les données CSV en tableau d'objets
+  const parseCSV = (csv) => {
+    const rows = csv.split('\n');
+    const headers = rows[0].split(',');
+    const data = rows.slice(1).map((row) => {
+      //console.log(row)
+      
+      const values = row.split(',');
+      return headers.reduce((acc, header, index) => {
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
+        
+        acc[header.trim()] = values[index].trim();
+        console.log(header)
+        return acc;
+      }, {});
     });
+    console.log(data)
+    data.map((item,index)=>{
+      console.log( moment(item.DateInstallation, 'DD/MM/YYYY').format('DD/MM/YYYY'))
+
+    })
+    
+
+    return data.map((item, index) => ({
+      id: index.toString(),
+      nom: item['Nom'] || 'Inconnu',
+      prenom: item['Prenom'] || 'Inconnu',
+      adresse: item['Adresse'] || 'Non spécifié',
+      Codepostal: item['Codepostal'] || 'Non spécifié',
+      telephone: item['NumeroTelephone'] || 'N/A',
+      dateInstallation:moment(item.DateInstallation, 'DD/MM/YYYY').format('DD/MM/YYYY'),
+      HeureInstallation: item['HeureInstallation'] || '00:00',
+      completed: item['Completed'] === 'true',
+    }));
   };
 
-  const toggleExpand = (id) => {
-    setExpandedId(expandedId === id ? null : id);
+  const toggleComplete = (id) => {
+    setAppointments((prevAppointments) =>
+      prevAppointments.map((appointment) =>
+        appointment.id === id ? { ...appointment, completed: !appointment.completed } : appointment
+      )
+    );
   };
 
-  const handleDelete = async (index) => {
-    const item = data[index];
+  const deleteAppointment = (id) => {
     Alert.alert(
-      "Confirmer la suppression",
-      "Voulez-vous vraiment supprimer ce rendez-vous ?",
+      "Supprimer le rendez-vous",
+      "Êtes-vous sûr de vouloir supprimer ce rendez-vous ?",
       [
         { text: "Annuler", style: "cancel" },
         {
           text: "Supprimer",
-          onPress: async () => {
-            try {
-              await axios.delete('http://192.168.1.22/api/greenco/' + item.id);
-  
-              // Fermer le Swipeable après suppression
-              if (swipeableRefs.current[index]) {
-                swipeableRefs.current[index].close();
-              }
-  
-              // Mettre à jour la liste
-              setData(prevData => prevData.filter((_, i) => i !== index));
-            } catch (error) {
-              console.error("Erreur lors de la suppression :", error);
-              Alert.alert("Erreur", "Impossible de supprimer le rendez-vous.");
-            }
+          onPress: () => {
+            setAppointments((prevAppointments) =>
+              prevAppointments.filter((appointment) => appointment.id !== id)
+            );
           },
-          style: "destructive",
         },
       ]
     );
   };
-  
-  
-  
 
-  const handleValidate = async (index) => {
-    const item = data[index];
-    const newValidatedState = !item.validated;
-  
-    try {
-      await axios.patch('http://192.168.1.22/api/greenco/' + item.id, {
-        validated: newValidatedState,
-      });
-  
-      setData(prevData =>
-        prevData.map((item, i) =>
-          i === index ? { ...item, validated: newValidatedState } : item
-        )
-      );
-    } catch (error) {
-      console.error("Erreur lors de la validation :", error);
-      Alert.alert("Erreur", "Impossible de valider le rendez-vous.");
-    }
-  };
-  
-  const renderRightActions = (index) => (
-    <TouchableOpacity
-      onPress={() => handleDelete(index)}
-      style={styles.deleteButton}
-    >
-      <Icon name="trash" size={24} color="white" />
+  const renderRightActions = (id) => (
+    <TouchableOpacity style={styles.deleteButton} onPress={() => deleteAppointment(id)}>
+      <Icon name="trash" size={30} color="#fff" />
     </TouchableOpacity>
   );
 
-  const renderLeftActions = (index) => (
-    <TouchableOpacity
-      onPress={() => handleValidate(index)}
-      style={styles.validateButton}
-    >
-      <Icon name="check" size={24} color="white" />
-    </TouchableOpacity>
-  );
+  const filteredAppointments = useMemo(() => {
+    return appointments.filter((appointment) => {
+      const matchesSearch =
+        appointment.nom.toLowerCase().includes(search.toLowerCase()) ||
+        appointment.prenom.toLowerCase().includes(search.toLowerCase()) ||
+        appointment.adresse.toLowerCase().includes(search.toLowerCase()) ||
+        appointment.telephone.includes(search);
 
-  const renderItem = ({ item, index }) => (
-    <Swipeable
-      key={index}
-      renderRightActions={() => renderRightActions(index)}
-      renderLeftActions={() => renderLeftActions(index)}
-      ref={(ref) => (swipeableRefs.current[index] = ref)}
-    >
-      <View style={[styles.dataContainer, item.validated && styles.validated]}>
-        <TouchableOpacity onPress={() => toggleExpand(index)}>
-          <Text style={[styles.row, item.validated && styles.lineThrough]}>
-            Nom : <Text style={[styles.value, item.validated && styles.lineThrough]}>{item.Name || "N/A"}</Text>
-          </Text>
-          <Text style={[styles.row, item.validated && styles.lineThrough]}>
-            Prénom : <Text style={[styles.value, item.validated && styles.lineThrough]}>{item.LastName || "N/A"}</Text>
-          </Text>
-          <Text style={[styles.row, item.validated && styles.lineThrough]}>
-            Date : <Text style={[styles.value, item.validated && styles.lineThrough]}>{formatDate(item.Date)}</Text>
-          </Text>
-          <Text style={[styles.row, item.validated && styles.lineThrough]}>
-            Heure : <Text style={[styles.value, item.validated && styles.lineThrough]}>{item.Heure || "N/A"}</Text>
-          </Text>
-        </TouchableOpacity>
+      if (filter === 'completed') {
+        return appointment.completed && matchesSearch;
+      }
+      if (filter === 'pending') {
+        return !appointment.completed && matchesSearch;
+      }
+      return matchesSearch;
+    });
+  }, [appointments, filter, search]);
 
-        {expandedId === index && (
-          <View style={styles.detailsContainer}>
-            <Text style={[styles.label, item.validated && styles.lineThrough]}>
-              Adresse : <Text style={styles.value}>{item.Adresse || "N/A"}</Text>
-            </Text>
-            <Text style={[styles.label, item.validated && styles.lineThrough]}>
-              Téléphone : <Text style={styles.value}>{item.Telephone || "N/A"}</Text>
-            </Text>
-            <Text style={[styles.label, item.validated && styles.lineThrough]}>
-              Email : <Text style={styles.value}>{item.Email || "N/A"}</Text>
-            </Text>
-            <Text style={[styles.label, item.validated && styles.lineThrough]}>
-              Superficie : <Text style={styles.value}>{item.Superficie || "N/A"}</Text>
-            </Text>
-            <Text style={[styles.label, item.validated && styles.lineThrough]}>
-              Énergie : <Text style={styles.value}>{item.Energie || "N/A"}</Text>
-            </Text>
-            <Text style={[styles.label, item.validated && styles.lineThrough]}>
-              Quantité : <Text style={styles.value}>{item.Quantite || "N/A"}</Text>
-            </Text>
-            <Text style={[styles.label, item.validated && styles.lineThrough]}>
-              Status : <Text style={styles.value}>{item.status || "N/A"}</Text>
-            </Text>
-          </View>
-        )}
-      </View>
+  const renderRow = ({ item }) => (
+    <Swipeable renderRightActions={() => renderRightActions(item.id)}>
+      <TouchableOpacity onPress={() => toggleComplete(item.id)} style={styles.card}>
+        <View style={[styles.row, item.completed && styles.completedRow]}>
+          <Text style={styles.cell}>{item.nom}</Text>
+          <Text style={styles.cell}>{item.prenom}</Text>
+          <Text style={styles.cell}>{item.adresse}</Text>
+          <Text style={styles.cell}>{item.Codepostal}</Text>
+          <Text style={styles.cell}>{item.telephone}</Text>
+          <Text style={styles.cell}>{item.dateInstallation}</Text>
+          <Text style={styles.cell}>{item.HeureInstallation}</Text>
+        </View>
+      </TouchableOpacity>
     </Swipeable>
   );
+  
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      {loading ? (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
-        </View>
+    <GestureHandlerRootView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={[styles.cell, styles.headerText]}>Information client</Text>
+      </View>
+
+      {/* Search Bar */}
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Rechercher un rendez-vous"
+        value={search}
+        onChangeText={setSearch}
+      />
+
+      {/* Filter Buttons */}
+      <View style={styles.filterContainer}>
+        <TouchableOpacity
+          onPress={() => setFilter('all')}
+          style={[styles.filterButton, filter === 'all' && styles.activeFilter]}
+        >
+          <Text style={styles.filterText}>Tous</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setFilter('completed')}
+          style={[styles.filterButton, filter === 'completed' && styles.activeFilter]}
+        >
+          <Text style={styles.filterText}>Complétés</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setFilter('pending')}
+          style={[styles.filterButton, filter === 'pending' && styles.activeFilter]}
+        >
+          <Text style={styles.filterText}>En attente</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Appointment List */}
+      {filteredAppointments.length === 0 ? (
+        <Text style={styles.emptyState}>Aucun rendez-vous disponible</Text>
       ) : (
         <FlatList
-          data={data}
-          keyExtractor={(item, index) => index.toString()}
-          renderItem={renderItem}
-          contentContainerStyle={styles.container}
-          ListEmptyComponent={<Text>Aucune donnée disponible pour le moment.</Text>}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
+          data={filteredAppointments}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderRow}
         />
       )}
     </GestureHandlerRootView>
@@ -232,57 +186,96 @@ const AppointmentsScreen = () => {
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
     padding: 20,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: 'black',
   },
-  dataContainer: {
-    backgroundColor: '#fff',
-    padding: 15,
-    marginBottom: 10,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-  },
-  validated: {
-    backgroundColor: '#d3ffd3',
-  },
-  lineThrough: {
-    textDecorationLine: 'line-through',
-  },
-  detailsContainer: {
-    marginTop: 10,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: 'bold',
+  header: {
+    flexDirection: 'row',
+    borderBottomWidth: 2,
+    borderBottomColor: 'red',
     marginBottom: 5,
+    paddingBottom: 5,
+    marginHorizontal: 100,
   },
-  value: {
-    fontWeight: 'normal',
-    color: '#333',
+  headerText: {
+    fontWeight: 'bold',
+  },
+  card: {
+    backgroundColor: 'black',
+    borderRadius: 10,
+    padding: 20, // Augmenter le padding pour ajouter de la longueur
+    marginBottom: 10,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    minHeight: 120, // Définir une hauteur minimum pour la ligne
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  completedRow: {
+    backgroundColor: '#d3ffd3',
+    borderRadius: 10,
+    padding: 20, // Augmenter le padding pour une ligne plus longue
+    marginBottom: 10,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    minHeight: 120, // Hauteur minimum
+  },
+  cell: {
+    flex: 1,
+    textAlign: 'left',
+    fontSize: 10,
+    borderRadius : 1 ,
   },
   deleteButton: {
     backgroundColor: 'red',
     justifyContent: 'center',
     alignItems: 'center',
-    width: 70,
+    width: 80,
     height: '100%',
-    borderRadius: 5,
+    borderRadius: 10,
   },
-  validateButton: {
-    backgroundColor: 'green',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 70,
-    height: '100%',
+  searchInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
     borderRadius: 5,
+    padding: 10,
+    marginVertical: 10,
   },
-  loaderContainer: {
+  filterContainer: {
+    flexDirection: 'row',
+    marginVertical: 10,
+  },
+  filterButton: {
     flex: 1,
-    justifyContent: 'center',
+    padding: 10,
+    backgroundColor: 'black',
     alignItems: 'center',
+    marginHorizontal: 5,
+    borderRadius: 5,
+  },
+  activeFilter: {
+    backgroundColor: '#d3ffd3',
+  },
+  filterText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  emptyState: {
+    textAlign: 'center',
+    fontSize: 16,
+    color: 'gray',
   },
 });
 
-export default AppointmentsScreen;
+
+export default AppointmentTable;

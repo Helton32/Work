@@ -1,25 +1,26 @@
-import PushNotification from 'react-native-push-notification';
+import PushNotification from "react-native-push-notification";
 
 class NotificationService {
-  constructor() {
+  configure = () => {
     PushNotification.configure({
       onNotification: function (notification) {
-        console.log('Notification received:', notification);
+        console.log("Notification Received: ", notification);
       },
-      requestPermissions: Platform.OS === 'ios',
+      popInitialNotification: true,
+      requestPermissions: true,
     });
-  }
+  };
 
-  sendNotification(title, message) {
+  showNotification = (title, message) => {
     PushNotification.localNotification({
-      title,
-      message,
+      title: title,
+      message: message,
       playSound: true,
       soundName: 'default',
       importance: 'high',
       vibrate: true,
     });
-  }
+  };
 }
 
-export default new NotificationService();
+export const notificationService = new NotificationService();

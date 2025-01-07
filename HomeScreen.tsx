@@ -8,10 +8,7 @@ const HomeScreen = ({ navigation }) => {
       style={styles.background}
     >
       <View style={styles.overlay}>
-        <Image 
-          source={require('./assets/lignes-cycle-feuille.png')} 
-          style={styles.logo} 
-        />
+        
         <Text style={styles.header}>Bienvenue sur Green Connect</Text>
         <Button
           title="Voir les rendez-vous"

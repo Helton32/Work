@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import firebase from '@react-native-firebase/app';
+import auth from '@react-native-firebase/auth'; // Import Firebase Auth
 import messaging from '@react-native-firebase/messaging';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, Text, Image, StyleSheet, TextInput, Button, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Button } from 'react-native';
 import HomeScreen from './HomeScreen';
 import AppointmentsScreen from './AppointmentsScreen';
 import AppointmentDetailsScreen from './AppointmentDetailsScreen';
@@ -16,7 +15,6 @@ const LogoTitle = () => {
   return (
     <View style={styles.headerContainer}>
       <Text style={styles.headerText}>Green Connect</Text>
-      <Image source={require('./assets/lignes-cycle-feuille.png')} style={styles.headerLogo} />
     </View>
   );
 };
@@ -28,12 +26,24 @@ const LoginScreen = ({ navigation }) => {
   const [errorMessage, setErrorMessage] = useState('');
 
   const handleLogin = async () => {
-    
-
-      // Navigation vers l'écran principal
+    console.log(email,password)
+    try {
+      await auth().signInWithEmailAndPassword(email, password);
       navigation.replace('Green Connect');
-    
+    } catch (error) {
+      console.log(error); // Affiche l'erreur dans la console
+      if (error.code === 'auth/invalid-email') {
+        setErrorMessage("L'adresse e-mail est invalide.");
+      } else if (error.code === 'auth/user-not-found') {
+        setErrorMessage("Aucun utilisateur trouvé avec cet e-mail.");
+      } else if (error.code === 'auth/wrong-password') {
+        setErrorMessage('Mot de passe incorrect.');
+      } else {
+        setErrorMessage(`Une erreur est survenue: ${error.message}`);
+      }
+    }
   };
+  
 
   return (
     <View style={styles.container}>
@@ -63,11 +73,30 @@ const LoginScreen = ({ navigation }) => {
 
 // Fonction de déconnexion commune
 const handleLogout = async (navigation) => {
-
-
-    // Retourner à l'écran de connexion
+  try {
+    await auth().signOut();
     navigation.replace('Login');
- 
+  } catch (error) {
+    Alert.alert('Erreur', 'Une erreur est survenue lors de la déconnexion.');
+  }
+};
+
+// Assurez-vous que l'utilisateur est connecté avant d'afficher l'écran principal
+const ProtectedRoute = ({ component: Component, ...rest }) => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = auth().onAuthStateChanged(user => {
+      setIsAuthenticated(!!user); // Si un utilisateur est connecté
+    });
+    return unsubscribe;
+  }, []);
+
+  if (!isAuthenticated) {
+    return <LoginScreen />;
+  }
+
+  return <Component {...rest} />;
 };
 
 const App = () => {
@@ -181,10 +210,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginRight: 10,
-  },
-  headerLogo: {
-    width: 30,
-    height: 30,
   },
   errorText: {
     color: 'red',
