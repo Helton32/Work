@@ -1,49 +1,59 @@
 import React, { useEffect, useState } from 'react';
-import auth from '@react-native-firebase/auth'; // Import Firebase Auth
 import messaging from '@react-native-firebase/messaging';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Button } from 'react-native';
 import HomeScreen from './HomeScreen';
 import AppointmentsScreen from './AppointmentsScreen';
-import AppointmentDetailsScreen from './AppointmentDetailsScreen';
+import { Provider, useDispatch, useSelector } from 'react-redux';
+import store from './store';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import ProfileScreen from './ProfileScreen';
+import axios from 'axios';
+import { setUser, setToken, logout } from './userSlice';
 
 const Stack = createNativeStackNavigator();
 
-// Fonction personnalisée pour le titre avec logo
-const LogoTitle = () => {
-  return (
-    <View style={styles.headerContainer}>
-      <Text style={styles.headerText}>Green Connect</Text>
-    </View>
-  );
-};
+const LogoTitle = () => (
+  <View style={styles.headerContainer}>
+    <Text style={styles.headerText}>Green Connect</Text>
+  </View>
+);
 
-// Écran de connexion
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const dispatch = useDispatch();
 
-  const handleLogin = async () => {
-    console.log(email,password)
+  const login = async () => {
+    setLoading(true);
+    setErrorMessage('');
     try {
-      await auth().signInWithEmailAndPassword(email, password);
+      console.log('Tentative de connexion avec:', email, password);
+      const response = await axios.post('https://www.greenconnectfrance.com/api/login', {
+        email,
+        password,
+      }, {
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      console.log('Réponse du serveur:', response.data);
+
+      if (!response.data || !response.data.token) {
+        throw new Error('Réponse invalide du serveur');
+      }
+
+      dispatch(setToken(response.data.token));
+      dispatch(setUser({ ...response.data.user, token: response.data.token }));
       navigation.replace('Green Connect');
     } catch (error) {
-      console.log(error); // Affiche l'erreur dans la console
-      if (error.code === 'auth/invalid-email') {
-        setErrorMessage("L'adresse e-mail est invalide.");
-      } else if (error.code === 'auth/user-not-found') {
-        setErrorMessage("Aucun utilisateur trouvé avec cet e-mail.");
-      } else if (error.code === 'auth/wrong-password') {
-        setErrorMessage('Mot de passe incorrect.');
-      } else {
-        setErrorMessage(`Une erreur est survenue: ${error.message}`);
-      }
+      setLoading(false);
+      console.error('Erreur de connexion:', error.response?.data || error.message);
+      setErrorMessage(error.response?.data?.message || "Échec de la connexion.");
     }
   };
-  
 
   return (
     <View style={styles.container}>
@@ -64,158 +74,71 @@ const LoginScreen = ({ navigation }) => {
         onChangeText={setPassword}
         secureTextEntry
       />
-      <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-        <Text style={styles.loginButtonText}>Connexion</Text>
+      <TouchableOpacity style={styles.loginButton} onPress={login} disabled={loading}>
+        <Text style={styles.loginButtonText}>{loading ? "Connexion..." : "Connexion"}</Text>
       </TouchableOpacity>
     </View>
   );
 };
 
-// Fonction de déconnexion commune
-const handleLogout = async (navigation) => {
+const handleLogout = async (navigation, dispatch) => {
   try {
-    await auth().signOut();
+    console.log('Déconnexion en cours...');
+    await axios.post(
+      'https://www.greenconnectfrance.com/api/logout',
+      {},
+      {
+        headers: { 'Authorization': `Bearer ${store.getState().user.token}` },
+      }
+    );
+    dispatch(logout());
     navigation.replace('Login');
   } catch (error) {
+    console.error('Erreur de déconnexion:', error);
     Alert.alert('Erreur', 'Une erreur est survenue lors de la déconnexion.');
   }
 };
 
-// Assurez-vous que l'utilisateur est connecté avant d'afficher l'écran principal
-const ProtectedRoute = ({ component: Component, ...rest }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  useEffect(() => {
-    const unsubscribe = auth().onAuthStateChanged(user => {
-      setIsAuthenticated(!!user); // Si un utilisateur est connecté
-    });
-    return unsubscribe;
-  }, []);
-
-  if (!isAuthenticated) {
-    return <LoginScreen />;
-  }
-
-  return <Component {...rest} />;
-};
-
 const App = () => {
-  // Fonctionnalité de gestion des notifications Firebase
-  const requestUserPermission = async () => {
-    const authStatus = await messaging().requestPermission();
-    const enabled =
-      authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-      authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-    if (enabled) {
-      console.log('Authorization status:', authStatus);
-    }
-  };
-
-  const getToken = async () => {
-    const token = await messaging().getToken();
-    console.log('Token Firebase :', token);
-  };
-
   useEffect(() => {
-    requestUserPermission();
-    getToken();
+    messaging().requestPermission();
+    messaging().getToken().then(token => console.log('Token Firebase :', token));
   }, []);
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="Login">
-        <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-        <Stack.Screen
-          name="Green Connect"
-          component={HomeScreen}
-          options={({ navigation }) => ({
-            headerTitle: () => <LogoTitle />,
-            headerRight: () => (
-              <Button
-                title="Déconnexion"
-                onPress={() => handleLogout(navigation)}
-                color="#4CAF50"
-              />
-            ),
-          })}
-        />
-        <Stack.Screen
-          name="Rendez-Vous"
-          component={AppointmentsScreen}
-          options={({ navigation }) => ({
-            headerRight: () => (
-              <Button
-                title="Déconnexion"
-                onPress={() => handleLogout(navigation)}
-                color="#4CAF50"
-              />
-            ),
-          })}
-        />
-        <Stack.Screen
-          name="AppointmentDetails"
-          component={AppointmentDetailsScreen}
-          options={({ navigation }) => ({
-            headerRight: () => (
-              <Button
-                title="Déconnexion"
-                onPress={() => handleLogout(navigation)}
-                color="#4CAF50"
-              />
-            ),
-          })}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <Provider store={store}>
+      <GestureHandlerRootView>
+        <NavigationContainer>
+          <Stack.Navigator initialRouteName="Login">
+            <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+            <Stack.Screen
+              name="Green Connect"
+              component={HomeScreen}
+              options={({ navigation }) => ({
+                headerTitle: () => <LogoTitle />,
+                headerRight: () => (
+                  <Button title="Déconnexion" onPress={() => handleLogout(navigation, store.dispatch)} color="#4CAF50" />
+                ),
+              })}
+            />
+            <Stack.Screen name="Rendez-Vous" component={AppointmentsScreen} />
+            <Stack.Screen name="Profil" component={ProfileScreen} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </GestureHandlerRootView>
+    </Provider>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    color: 'black',
-  },
-  input: {
-    width: '100%',
-    padding: 10,
-    borderColor: '#ccc',
-    borderWidth: 1,
-    borderRadius: 5,
-    marginBottom: 15,
-  },
-  loginButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 5,
-  },
-  loginButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  headerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginRight: 10,
-  },
-  errorText: {
-    color: 'red',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, color: 'black' },
+  input: { width: '100%', padding: 10, borderColor: '#ccc', borderWidth: 1, borderRadius: 5, marginBottom: 15 },
+  loginButton: { backgroundColor: '#4CAF50', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 5 },
+  loginButtonText: { color: 'white', fontWeight: 'bold' },
+  headerContainer: { flexDirection: 'row', alignItems: 'center' },
+  headerText: { fontSize: 18, fontWeight: 'bold', marginRight: 10 },
+  errorText: { color: 'red', textAlign: 'center', marginBottom: 10 },
 });
 
 export default App;

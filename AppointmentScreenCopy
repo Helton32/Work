@@ -50,7 +50,7 @@ const AppointmentsScreen = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('http://192.168.1.22/api/greenco');
+      const response = await axios.get('https://www.greenconnectfrance.com/api/greenco');
       const formattedData = response.data.data.map(item => ({ ...item, validated: false }));
       setData(formattedData);
     } catch (error) {

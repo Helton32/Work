@@ -1,0 +1,450 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  TextInput,
+  TouchableOpacity,
+  Modal,
+  FlatList,
+  RefreshControl,
+} from 'react-native';
+import { Calendar } from 'react-native-calendars';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { Swipeable } from 'react-native-gesture-handler';
+import axios from 'axios';
+import moment from 'moment';
+
+const AppointmentCalendar = () => {
+  const [appointments, setAppointments] = useState([]);
+  const [markedDates, setMarkedDates] = useState({});
+  const [selectedDate, setSelectedDate] = useState(moment().format('YYYY-MM-DD'));
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [formData, setFormData] = useState({
+    Name: '',
+    LastName: '',
+    adresse: '',
+    telephone: '',
+    Heure: '',
+    Email: '',
+    Quantite: '',
+    Energie: '',
+    Superficie: '',
+  });
+
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      const response = await axios.get('https://www.greenconnectfrance.com/api/greenco');
+      if (response.data && response.data.data && Array.isArray(response.data.data)) {
+        const parsedData = parseAppointments(response.data.data);
+        setAppointments(parsedData);
+        mapAppointmentsToCalendar(parsedData);
+      } else {
+        Alert.alert('Erreur', 'Les données ne sont pas dans le format attendu.');
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement des données :', error);
+      Alert.alert('Erreur', "Impossible de charger les données. Vérifiez votre connexion.");
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchData(); // Appel de fetchData pour recharger les données
+  };
+
+  useEffect(() => {
+    mapAppointmentsToCalendar(appointments);
+  }, [appointments]);
+
+  const parseAppointments = (data) => {
+    return data.map((item) => ({
+      id: item.id.toString(),
+      Name: item.Name,
+      LastName: item.LastName || 'Inconnu',
+      adresse: item.Adresse || 'Non spécifié',
+      telephone: item.Telephone || 'N/A',
+      email: item.Email || '',
+      appointmentDate: moment(item.Date, 'YYYY-MM-DD').format('YYYY-MM-DD'),
+      Heure: item.Heure || '00:00',
+      status: item.status || 'En cours',
+    }));
+  };
+
+  const mapAppointmentsToCalendar = (data) => {
+    const marked = {};
+    data.forEach((appointment) => {
+      if (!marked[appointment.appointmentDate]) {
+        marked[appointment.appointmentDate] = { marked: true, dotColor: '#6ddb6d' };
+      }
+    });
+    setMarkedDates(marked);
+  };
+
+  const handleSaveAppointment = async () => {
+    if (!formData.Name || !formData.LastName || !formData.adresse || !formData.Heure || !formData.email) {
+      Alert.alert('Erreur', 'Tous les champs sont obligatoires.');
+      return;
+    }
+
+    const newAppointment = {
+      Name: formData.Name,
+      LastName: formData.LastName,
+      Adresse: formData.adresse,
+      Telephone: formData.telephone,
+      Email: formData.email,
+      Superficie: formData.Superficie,
+      Energie: formData.Energie,
+      Quantite: formData.Quantite,
+      Heure: formData.Heure,
+      Date: selectedDate,
+    };
+
+    try {
+      const response = await axios.post('https://www.greenconnectfrance.com/api/greenco/add', newAppointment);
+      if (response.data) {
+        const updatedAppointments = [...appointments, { ...newAppointment, id: response.data.id }];
+        setAppointments(updatedAppointments);
+        setModalVisible(false);
+        resetFormData();
+      }
+    } catch (error) {
+      console.error('Erreur lors de l\'ajout :', error);
+      Alert.alert('Erreur', "Impossible d'ajouter le rendez-vous.");
+    }
+  };
+
+  const handleUpdateAppointment = async () => {
+    if (!formData.Name || !formData.LastName || !formData.adresse || !formData.Heure || !formData.email) {
+      Alert.alert('Erreur', 'Tous les champs sont obligatoires.');
+      return;
+    }
+
+    const updatedAppointment = {
+      Name: formData.Name,
+      LastName: formData.LastName,
+      adresse: formData.adresse,
+      telephone: formData.telephone,
+      email: formData.email,
+      Heure: formData.Heure,
+      Date: selectedDate,
+    };
+
+    try {
+      const response = await axios.patch(`https://www.greenconnectfrance.com/api/greenco/${selectedAppointmentId}`, updatedAppointment);
+      if (response.data) {
+        const updatedAppointments = appointments.map((appt) =>
+          appt.id === selectedAppointmentId ? { ...updatedAppointment, id: selectedAppointmentId } : appt
+        );
+        setAppointments(updatedAppointments);
+        setModalVisible(false);
+        resetFormData();
+      }
+    } catch (error) {
+      console.error('Erreur lors de la modification :', error);
+      Alert.alert('Erreur', "Impossible de modifier le rendez-vous.");
+    }
+  };
+
+  const handleDeleteAppointment = (id) => {
+    Alert.alert('Confirmation', 'Voulez-vous supprimer ce rendez-vous ?', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer',
+        onPress: async () => {
+          try {
+            await axios.delete(`https://www.greenconnectfrance.com/api/greenco/${id}`);
+            const updatedAppointments = appointments.filter((appt) => appt.id !== id);
+            setAppointments(updatedAppointments);
+          } catch (error) {
+            console.error('Erreur lors de la suppression :', error);
+            Alert.alert('Erreur', "Impossible de supprimer le rendez-vous.");
+          }
+        },
+      },
+    ]);
+  };
+
+  const resetFormData = () => {
+    setFormData({
+      Name: '',
+      LastName: '',
+      adresse: '',
+      telephone: '',
+      Heure: '',
+      email: '',
+    });
+    setSelectedAppointmentId(null);
+  };
+
+  const renderAppointment = ({ item }) => {
+    const isSelected = item.id === selectedAppointmentId;
+
+    const renderRightActions = (item) => (
+      <View style={styles.swipeActions}>
+        <TouchableOpacity onPress={() => handleDeleteAppointment(item.id)} style={styles.actionButton}>
+          <Icon name="delete" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    );
+
+    return (
+      <Swipeable renderRightActions={() => renderRightActions(item)}>
+        <TouchableOpacity
+          style={[styles.appointmentCard, isSelected && styles.selectedCard]}
+          onPress={() => {
+            setSelectedAppointmentId(item.id);
+            const updatedAppointments = appointments.map((appt) =>
+              appt.id === item.id ? { ...appt, status: 'Terminé' } : appt
+            );
+            setAppointments(updatedAppointments);
+          }}
+        >
+          <Text style={styles.appointmentText}>{item.Name}</Text>
+          <Text style={styles.appointmentText}> {item.LastName}</Text>
+          <Text style={styles.appointmentText}>{item.adresse}</Text>
+          <Text style={styles.appointmentText}>Heure : {item.Heure}</Text>
+          <Text style={styles.appointmentText}>Statut : {item.status}</Text>
+        </TouchableOpacity>
+      </Swipeable>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      {isLoading ? (
+        <ActivityIndicator size="large" color="#6ddb6d" />
+      ) : (
+        <>
+          <Calendar
+            markedDates={{
+              ...markedDates,
+              [selectedDate]: { ...markedDates[selectedDate], selected: true, selectedColor: '#81c784' },
+            }}
+            onDayPress={(day) => setSelectedDate(day.dateString)}
+            theme={{
+              calendarBackground: '#1e3d1e',
+              dayTextColor: '#ffffff',
+              monthTextColor: '#ffffff',
+              arrowColor: '#6ddb6d',
+              selectedDayBackgroundColor: '#6ddb6d',
+              dotColor: '#6ddb6d',
+            }}
+          />
+          <FlatList
+            data={appointments.filter((appt) => appt.appointmentDate === selectedDate)}
+            keyExtractor={(item) => item.id}
+            renderItem={renderAppointment}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          />
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => setModalVisible(true)}
+          >
+            <Icon name="add" size={28} color="#fff" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.editButton}
+            onPress={() => {
+              const selectedAppointment = appointments.find(appt => appt.id === selectedAppointmentId);
+              if (selectedAppointment) {
+                setFormData(selectedAppointment);
+                setModalVisible(true);
+              }
+            }}
+          >
+            <Icon name="edit" size={28} color="#fff" />
+          </TouchableOpacity>
+        </>
+      )}
+
+      <Modal visible={modalVisible} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{selectedAppointmentId ? 'Modifier' : 'Ajouter'} un rendez-vous</Text>
+            <TextInput
+              placeholder="Nom"
+              value={formData.Name}
+              onChangeText={(text) => setFormData({ ...formData, Name: text })}
+              style={styles.textInput}
+            />
+            <TextInput
+              placeholder="Prénom"
+              value={formData.LastName}
+              onChangeText={(text) => setFormData({ ...formData, LastName: text })}
+              style={styles.textInput}
+            />
+            <TextInput
+              placeholder="Adresse"
+              value={formData.adresse}
+              onChangeText={(text) => setFormData({ ...formData, adresse: text })}
+              style={styles.textInput}
+            />
+            <TextInput
+              placeholder="Téléphone"
+              value={formData.telephone}
+              onChangeText={(text) => setFormData({ ...formData, telephone: text })}
+              style={styles.textInput}
+            />
+            <TextInput
+              placeholder="Email"
+              value={formData.email}
+              onChangeText={(text) => setFormData({ ...formData, email: text })}
+              style={styles.textInput}
+            />
+            <TextInput
+              placeholder="Heure"
+              value={formData.Heure}
+              onChangeText={(text) => setFormData({ ...formData, Heure: text })}
+              style={styles.textInput}
+            />
+            <TextInput 
+              placeholder="Quantité" 
+              value={formData.Quantite} 
+              onChangeText={(text) => setFormData({ ...formData, Quantite: text })} 
+              style={styles.textInput} 
+            />
+            <TextInput 
+              placeholder="Énergie" 
+              value={formData.Energie} 
+              onChangeText={(text) => setFormData({ ...formData, Energie: text })} 
+              style={styles.textInput} 
+            />
+            <TextInput 
+              placeholder="Superficie" 
+              value={formData.Superficie} 
+              onChangeText={(text) => setFormData({ ...formData, Superficie: text })} 
+              style={styles.textInput} 
+            />
+
+            <TouchableOpacity onPress={selectedAppointmentId ? handleUpdateAppointment : handleSaveAppointment} style={styles.button}>
+              <Text style={styles.buttonText}>Sauvegarder</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.cancelButton}>
+              <Text style={styles.cancelButtonText}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#1e3d1e',
+  },
+  appointmentCard: {
+    backgroundColor: '#2b5f2b',
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 12,
+    elevation: 3,
+  },
+  selectedCard: {
+    borderColor: '#6ddb6d',
+    borderWidth: 2,
+    shadowColor: '#6ddb6d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+  },
+  appointmentText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  addButton: {
+    position: 'absolute',
+    bottom: 30,
+    right: 30,
+    backgroundColor: '#6ddb6d',
+    borderRadius: 50,
+    padding: 20,
+  },
+  editButton: {
+    position: 'absolute',
+    bottom: 30,
+    left: 30,
+    backgroundColor: '#ffa500',
+    borderRadius: 50,
+    padding: 20,
+  },
+  swipeActions: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f44336',
+    width: 100,
+    height: '100%',
+  },
+  actionButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 60,
+    height: 60,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: 'black',
+    padding: 20,
+    borderRadius: 12,
+    width: 300,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    color: '#333',
+  },
+  textInput: {
+    borderColor: '#ccc',
+    borderWidth: 1,
+    padding: 10,
+    marginBottom: 10,
+    borderRadius: 6,
+    fontSize: 16,
+  },
+  button: {
+    backgroundColor: '#6ddb6d',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  cancelButton: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  cancelButtonText: {
+    color: '#999',
+    fontSize: 16,
+  },
+});
+
+export default AppointmentCalendar;
